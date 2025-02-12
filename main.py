@@ -1,3 +1,5 @@
+print("🔥 Loaded latest version of main.py!")
+
 from utils import read_file
 from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
