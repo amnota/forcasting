@@ -43,7 +43,10 @@ async def forecast(file: UploadFile = File(...)):
     # Features ที่ต้องใช้
     required_columns = ['past_sales', 'day_of_week', 'month', 'promotions', 'holidays', 'stock_level', 'customer_traffic']
 
+    # 🔍 Debug: เช็คว่าคอลัมน์ที่อ่านได้ตรงกับที่ต้องการหรือไม่
+    print("🔍 DEBUG: คอลัมน์ที่อ่านจาก CSV:", df.columns.tolist())
     # ✅ แก้ไข Indentation Error
+    
     missing_columns = [col for col in required_columns if col not in df.columns]
     if missing_columns:
         return {"error": f"CSV file ต้องมีคอลัมน์ {missing_columns}"}
