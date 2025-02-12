@@ -3,7 +3,6 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import joblib
-from io import BytesIO
 import logging
 
 # ตั้งค่า Logging
@@ -43,18 +42,20 @@ async def forecast(file: UploadFile = File(...)):
 
     # Features ที่ต้องใช้
     required_columns = ['past_sales', 'day_of_week', 'month', 'promotions', 'holidays', 'stock_level', 'customer_traffic']
-    
+
+    # ✅ แก้ไข Indentation Error
     missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            return {"error": f"CSV file ต้องมีคอลัมน์ {missing_columns}"}
+    if missing_columns:
+        return {"error": f"CSV file ต้องมีคอลัมน์ {missing_columns}"}
+
     try:
         if model is not None:
             predictions = model.predict(df[required_columns])
             df['forecast_sales'] = predictions
 
-            # คำนวณ Accuracy และ Risk Metrics ถ้ามี `actual_sales`
-            actual_sales = df.get('actual_sales', None)
-            if actual_sales is not None:
+            # ✅ ตรวจสอบว่ามี actual_sales หรือไม่
+            actual_sales = df.get('actual_sales')
+            if actual_sales is not None and not actual_sales.isnull().all():
                 df['error'] = abs(df['forecast_sales'] - actual_sales)
                 forecast_accuracy = 100 - (df['error'].mean() / actual_sales.mean() * 100)
                 overstock_risk = (df[df['forecast_sales'] > actual_sales].shape[0] / len(df)) * 100
