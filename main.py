@@ -43,10 +43,10 @@ async def forecast(file: UploadFile = File(...)):
 
     # Features ที่ต้องใช้
     required_columns = ['past_sales', 'day_of_week', 'month', 'promotions', 'holidays', 'stock_level', 'customer_traffic']
-    for col in required_columns:
-        if col not in df.columns:
-            return {"error": f"CSV ต้องมีคอลัมน์ '{col}'"}
-
+    
+    missing_columns = [col for col in required_columns if col not in df.columns]
+        if missing_columns:
+            return {"error": f"CSV file ต้องมีคอลัมน์ {missing_columns}"}
     try:
         if model is not None:
             predictions = model.predict(df[required_columns])
