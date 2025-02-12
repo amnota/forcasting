@@ -1,20 +1,33 @@
-from utils import read_file 
-
-
+from utils import read_file
 from fastapi import FastAPI, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import joblib
 from io import BytesIO
+import logging
+
+# ตั้งค่า Logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
+
+# เพิ่ม CORS Middleware (รองรับ Frontend)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ควรเปลี่ยนเป็น ["https://your-frontend.com"] ใน production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # พยายามโหลดโมเดลที่บันทึกไว้ในไฟล์ model.pkl
 try:
     model = joblib.load("model.pkl")
-    print("Loaded ML model from model.pkl")
+    logger.info("Loaded ML model from model.pkl")
 except Exception as e:
     model = None
-    print("Warning: ไม่พบ model.pkl หรือโหลดไม่ได้, จะใช้ dummy predictions แทน")
+    logger.warning(f"Warning: ไม่พบ model.pkl หรือโหลดไม่ได้, จะใช้ dummy predictions แทน - {e}")
 
 @app.get("/")
 def index():
@@ -22,36 +35,50 @@ def index():
 
 @app.post("/forecast/")
 async def forecast(file: UploadFile = File(...)):
-    """
-    รับไฟล์ CSV, ทำความสะอาดข้อมูล (ลบค่า null),
-    ตรวจสอบว่ามีคอลัมน์ 'feature' อยู่ในข้อมูลหรือไม่,
-    จากนั้นใช้ ML model เพื่อพยากรณ์ (หรือให้ dummy predictions หากไม่มี model)
-    """
+    df, error = await read_file(file)
+    if error:
+        return {"error": error}
+
+    df.dropna(inplace=True)
+
+    # Features ที่ต้องใช้
+    required_columns = ['past_sales', 'day_of_week', 'month', 'promotions', 'holidays', 'stock_level', 'customer_traffic']
+    for col in required_columns:
+        if col not in df.columns:
+            return {"error": f"CSV ต้องมีคอลัมน์ '{col}'"}
+
     try:
-        # อ่านข้อมูลจากไฟล์ CSV ที่อัปโหลดเข้ามา
-        data = await file.read()
-        df = pd.read_csv(BytesIO(data))
-        
-        # Data cleaning: ลบข้อมูลที่เป็น NaN
-        df.dropna(inplace=True)
-        
-        # ตรวจสอบว่ามีคอลัมน์ที่จำเป็นอยู่หรือไม่
-        required_column = "feature"  # เปลี่ยนชื่อตามข้อมูลจริงของคุณ
-        if required_column not in df.columns:
-            return {"error": f"CSV file ต้องมีคอลัมน์ '{required_column}'"}
-        
-        # หากมีโมเดลที่โหลดมาได้, ใช้โมเดลนั้นในการพยากรณ์
         if model is not None:
-            predictions = model.predict(df[[required_column]])
-            predictions_list = predictions.tolist()
+            predictions = model.predict(df[required_columns])
+            df['forecast_sales'] = predictions
+
+            # คำนวณ Accuracy และ Risk Metrics ถ้ามี `actual_sales`
+            actual_sales = df.get('actual_sales', None)
+            if actual_sales is not None:
+                df['error'] = abs(df['forecast_sales'] - actual_sales)
+                forecast_accuracy = 100 - (df['error'].mean() / actual_sales.mean() * 100)
+                overstock_risk = (df[df['forecast_sales'] > actual_sales].shape[0] / len(df)) * 100
+                understock_risk = (df[df['forecast_sales'] < actual_sales].shape[0] / len(df)) * 100
+            else:
+                forecast_accuracy = 0  # เปลี่ยนจาก None เป็น 0
+                overstock_risk = 0
+                understock_risk = 0
+
+            logger.info(f"Forecasting completed: Accuracy={forecast_accuracy:.2f}%, Overstock Risk={overstock_risk:.2f}%, Understock Risk={understock_risk:.2f}%")
+
+            return {
+                "predictions": df['forecast_sales'].tolist(),
+                "forecast_accuracy": forecast_accuracy,
+                "overstock_risk": overstock_risk,
+                "understock_risk": understock_risk
+            }
         else:
-            # ถ้าไม่มีโมเดล, คืนค่า dummy predictions
-            predictions_list = [42] * len(df)
-        
-        return {"predictions": predictions_list}
-    
+            logger.error("Model not loaded")
+            return {"error": "Model not loaded"}
+
     except Exception as e:
-        return {"error": str(e)}
+        logger.error(f"Prediction failed: {e}")
+        return {"error": f"Prediction failed: {e}"}
 
 if __name__ == "__main__":
     import uvicorn
