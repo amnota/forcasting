@@ -1,3 +1,6 @@
+from utils import read_file 
+
+
 from fastapi import FastAPI, UploadFile, File
 import pandas as pd
 import joblib
